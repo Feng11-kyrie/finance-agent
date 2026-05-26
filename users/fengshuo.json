@@ -1,0 +1,11 @@
+{
+  "name": "fengshuo",
+  "sendkey": "SCT355060T0YLD22gwfltnhijVB0UiSBhV",
+  "watchlist": {
+    "stocks": [],
+    "funds": [
+      {"code": "161725", "name": "招商中证白酒", "alert_nav_below": 0.5, "alert_change_pct": 3},
+      {"code": "000961", "name": "天弘沪深300联接A", "alert_nav_below": 1.3, "alert_change_pct": 2}
+    ]
+  }
+}
