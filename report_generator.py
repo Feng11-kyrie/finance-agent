@@ -66,6 +66,43 @@ def is_trading_day() -> tuple[bool, str]:
 
 # PushPlus token — 从环境变量或 secrets 读取
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "")
+
+# ═══════════════════════════════════════════════
+# 推送（WxPusher）
+# ═══════════════════════════════════════════════
+
+def push_to_wechat(title: str, content: str) -> bool:
+    """通过 WxPusher 推送到微信"""
+    app_token = os.environ.get("WXPUSHER_APP_TOKEN", "")
+    uids_str = os.environ.get("WXPUSHER_UIDS", "")
+
+    if not app_token or not uids_str:
+        print("⚠️ 未配置 WXPUSHER_APP_TOKEN 或 WXPUSHER_UIDS，跳过推送")
+        return False
+
+    uids = [u.strip() for u in uids_str.split(",") if u.strip()]
+
+    try:
+        r = requests.post(
+            "https://wxpusher.zjiecode.com/api/send/message",
+            json={
+                "appToken": app_token,
+                "content": f"## {title}\n\n{content}",
+                "contentType": 3,  # 3 = Markdown
+                "uids": uids,
+            },
+            timeout=15,
+        )
+        result = r.json()
+        if result.get("code") == 1000:
+            print(f"✅ 推送成功: {title}")
+            return True
+        else:
+            print(f"❌ 推送失败: {result}")
+            return False
+    except Exception as e:
+        print(f"❌ 推送异常: {e}")
+        return False
 # 用户持仓配置路径
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "config.json")
 
@@ -278,39 +315,6 @@ def generate_report(report_type: str) -> str:
     )
 
     return response.content[0].text
-
-
-# ═══════════════════════════════════════════════
-# 推送
-# ═══════════════════════════════════════════════
-
-def push_to_wechat(title: str, content: str) -> bool:
-    """通过 PushPlus 推送到微信"""
-    if not PUSHPLUS_TOKEN:
-        print("⚠️ 未配置 PUSHPLUS_TOKEN，跳过推送")
-        return False
-
-    try:
-        r = requests.post(
-            "https://www.pushplus.plus/send",
-            json={
-                "token": PUSHPLUS_TOKEN,
-                "title": title,
-                "content": content,
-                "template": "markdown",
-            },
-            timeout=15,
-        )
-        result = r.json()
-        if result.get("code") == 200:
-            print(f"✅ 推送成功: {title}")
-            return True
-        else:
-            print(f"❌ 推送失败: {result}")
-            return False
-    except Exception as e:
-        print(f"❌ 推送异常: {e}")
-        return False
 
 
 # ═══════════════════════════════════════════════
