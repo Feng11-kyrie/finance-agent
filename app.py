@@ -7,12 +7,21 @@
 
 from __future__ import annotations
 
+import os
 import streamlit as st
 import anthropic
 import json
 import requests
 import re
 from datetime import datetime
+
+
+def get_api_key() -> str:
+    """优先从 Streamlit secrets 读取，其次从环境变量"""
+    try:
+        return st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        return os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ═══════════════════════════════════════════════
 # 页面配置
@@ -468,7 +477,12 @@ def execute_tool(name: str, params: dict) -> str:
 # ═══════════════════════════════════════════════
 
 def run_agent(user_question: str, status_container, fast_mode: bool = True) -> str:
+    api_key = get_api_key()
+    if not api_key:
+        return "❌ 未配置 API Key，请在 Streamlit Cloud 的 Settings → Secrets 中添加 `ANTHROPIC_API_KEY`"
+
     client = anthropic.Anthropic(
+        api_key=api_key,
         base_url="https://api.deepseek.com/anthropic",
     )
 
