@@ -68,33 +68,25 @@ def is_trading_day() -> tuple[bool, str]:
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "")
 
 # ═══════════════════════════════════════════════
-# 推送（WxPusher）
+# 推送（Server酱）
 # ═══════════════════════════════════════════════
 
 def push_to_wechat(title: str, content: str) -> bool:
-    """通过 WxPusher 推送到微信"""
-    app_token = os.environ.get("WXPUSHER_APP_TOKEN", "")
-    uids_str = os.environ.get("WXPUSHER_UIDS", "")
-
-    if not app_token or not uids_str:
-        print("⚠️ 未配置 WXPUSHER_APP_TOKEN 或 WXPUSHER_UIDS，跳过推送")
+    """通过 Server酱 推送到微信"""
+    sendkey = os.environ.get("SERVERCHAN_SENDKEY", "")
+    if not sendkey:
+        print("⚠️ 未配置 SERVERCHAN_SENDKEY，跳过推送")
         return False
 
-    uids = [u.strip() for u in uids_str.split(",") if u.strip()]
-
     try:
+        # Server酱支持 Markdown，用 desp 参数传内容
         r = requests.post(
-            "https://wxpusher.zjiecode.com/api/send/message",
-            json={
-                "appToken": app_token,
-                "content": f"## {title}\n\n{content}",
-                "contentType": 3,  # 3 = Markdown
-                "uids": uids,
-            },
+            f"https://sctapi.ftqq.com/{sendkey}.send",
+            data={"title": title, "desp": content},
             timeout=15,
         )
         result = r.json()
-        if result.get("code") == 1000:
+        if result.get("code") == 0:
             print(f"✅ 推送成功: {title}")
             return True
         else:
