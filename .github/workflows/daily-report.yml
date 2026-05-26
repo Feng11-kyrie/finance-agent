@@ -1,0 +1,52 @@
+name: 每日智能分析报告
+
+on:
+  schedule:
+    # 北京时间 10:00 = UTC 02:00（周一至周五）
+    - cron: '0 2 * * 1-5'
+    # 北京时间 14:30 = UTC 06:30（周一至周五）
+    - cron: '30 6 * * 1-5'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  morning-report:
+    name: 早盘报告 (10:00)
+    if: github.event.schedule == '0 2 * * 1-5' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 生成早盘报告
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+        run: python report_generator.py morning
+
+  afternoon-report:
+    name: 午盘报告 (14:30)
+    if: github.event.schedule == '30 6 * * 1-5' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 生成午盘报告
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+        run: python report_generator.py afternoon
