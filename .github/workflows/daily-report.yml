@@ -26,24 +26,34 @@ jobs:
       - name: 诊断 API 连接
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
         run: |
           python3 -c "
-          import os, requests
-          key = os.environ.get('ANTHROPIC_API_KEY','')[:8]
-          base = os.environ.get('ANTHROPIC_BASE_URL','')
-          print(f'API Key: {key}...')
-          print(f'Base URL: {base}')
-          # 测试连接
-          url = f'{base}/v1/messages'
-          print(f'Full URL: {url}')
+          import os, requests, json
+
+          key = os.environ['ANTHROPIC_API_KEY']
+
+          # 测试1: Anthropic兼容接口
+          print('=== 测试1: Anthropic兼容接口 ===')
           try:
-              r = requests.post(url,
-                  headers={'x-api-key': os.environ['ANTHROPIC_API_KEY'], 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+              r = requests.post('https://api.deepseek.com/anthropic/v1/messages',
+                  headers={'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
                   json={'model':'deepseek-chat','max_tokens':5,'messages':[{'role':'user','content':'hi'}]},
                   timeout=15)
               print(f'Status: {r.status_code}')
-              print(f'Body: {r.text[:300]}')
+              print(f'Body: {r.text[:200]}')
+          except Exception as e:
+              print(f'Error: {e}')
+
+          # 测试2: 原生OpenAI兼容接口
+          print()
+          print('=== 测试2: 原生API ===')
+          try:
+              r = requests.post('https://api.deepseek.com/v1/chat/completions',
+                  headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+                  json={'model':'deepseek-chat','messages':[{'role':'user','content':'hi'}],'max_tokens':5},
+                  timeout=15)
+              print(f'Status: {r.status_code}')
+              print(f'Body: {r.text[:200]}')
           except Exception as e:
               print(f'Error: {e}')
           "
