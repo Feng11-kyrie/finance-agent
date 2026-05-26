@@ -1,6 +1,7 @@
 """
 定时报告生成器 - 早盘 & 午盘分析
 GitHub Actions 定时触发，通过 PushPlus 推送到微信
+工作日自动运行，周末和节假日自动跳过
 """
 
 import json
@@ -21,6 +22,47 @@ SINA_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Referer": "https://finance.sina.com.cn/",
 }
+
+
+def is_trading_day() -> tuple[bool, str]:
+    """判断今天是否为 A 股交易日。返回 (是否交易日, 原因)"""
+    now = datetime.now(BEIJING_TZ)
+
+    # 1. 周末直接跳过
+    if now.weekday() >= 5:
+        weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        return False, f"今天是{weekday_names[now.weekday()]}，A股休市"
+
+    # 2. 检查市场是否真的在交易（上证指数成交量 > 0 说明开盘）
+    try:
+        r = requests.get(
+            "https://hq.sinajs.cn/list=sh000001",
+            headers=SINA_HEADERS, timeout=8,
+        )
+        r.encoding = "gbk"
+        parts = r.text.split('"')[1].split(",")
+        volume = int(parts[8]) if parts[8] else 0
+        if volume == 0:
+            return False, "上证指数无成交量，判断为非交易日（节假日休市）"
+    except Exception as e:
+        # 数据获取失败，保守起见跳过
+        return False, f"无法确认市场状态: {e}"
+
+    # 3. 检查是否在交易时间之外（非交易时间也能发，但不跳过）
+    hour = now.hour
+    minute = now.minute
+    if hour < 9 or (hour == 9 and minute < 15):
+        return True, f"盘前 ({now:%H:%M})"
+    elif hour < 11 or (hour == 11 and minute <= 30):
+        return True, f"早盘交易中 ({now:%H:%M})"
+    elif hour < 13:
+        return True, f"午间休市 ({now:%H:%M})"
+    elif hour < 15:
+        return True, f"午盘交易中 ({now:%H:%M})"
+    else:
+        return True, f"已收盘 ({now:%H:%M})"
+
+    return True, ""
 
 # PushPlus token — 从环境变量或 secrets 读取
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "")
@@ -277,15 +319,20 @@ def push_to_wechat(title: str, content: str) -> bool:
 
 def main():
     now = datetime.now(BEIJING_TZ)
-    hour = now.hour
+
+    # ── 交易日检查 ──
+    trading, reason = is_trading_day()
+    print(f"交易日检查: {'✅ 是' if trading else '❌ 否'} — {reason}")
+    if not trading:
+        print(f"跳过报告生成: {reason}")
+        return  # 优雅退出，不报错
 
     # 根据时间自动判断报告类型
     if len(sys.argv) > 1:
         report_type = sys.argv[1]  # "morning" or "afternoon"
-    elif hour < 12:
-        report_type = "morning"
     else:
-        report_type = "afternoon"
+        hour = now.hour
+        report_type = "morning" if hour < 12 else "afternoon"
 
     print(f"开始生成 {report_type} 报告... 时间: {now:%Y-%m-%d %H:%M:%S}")
 
