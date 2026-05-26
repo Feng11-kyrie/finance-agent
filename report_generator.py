@@ -300,13 +300,17 @@ def generate_report(report_type: str) -> str:
     )
 
     response = client.messages.create(
-        model="deepseek-v4-flash",
+        model="deepseek-chat",
         max_tokens=3072,
         system="你是一位专业A股分析师。根据提供的市场数据生成高质量分析报告。",
         messages=[{"role": "user", "content": prompt}],
     )
 
-    return response.content[0].text
+    # 提取文本（跳过 ThinkingBlock 等非文本块）
+    for block in response.content:
+        if block.type == "text":
+            return block.text
+    return response.content[0].text  # fallback
 
 
 # ═══════════════════════════════════════════════
