@@ -294,10 +294,18 @@ def generate_report(report_type: str) -> str:
     )
 
     print(f"[{datetime.now(BEIJING_TZ):%H:%M:%S}] 调用 Agent 生成报告...")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY 未配置")
+
     client = anthropic.Anthropic(
-        api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        base_url=os.environ.get("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"),
+        api_key=api_key,
+        base_url="https://api.deepseek.com/anthropic",
     )
+
+    print(f"  模型: deepseek-chat")
+    print(f"  prompt长度: {len(prompt)} 字符")
 
     response = client.messages.create(
         model="deepseek-chat",
