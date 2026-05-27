@@ -784,7 +784,7 @@ with st.sidebar:
 # 主区域
 # ═══════════════════════════════════════════════
 
-tab_analyze, tab_monitor = st.tabs(["🔍 智能分析", "📋 持仓监控"])
+tab_analyze, tab_monitor, tab_register = st.tabs(["🔍 智能分析", "📋 持仓监控", "📝 注册推送"])
 
 # ── Tab 1: 智能分析 ───────────────────────────
 
@@ -906,6 +906,101 @@ with tab_monitor:
                     st.warning(alert)
             elif monitor_btn:
                 st.success("✅ 所有持仓正常，无需告警")
+
+# ── Tab 3: 注册推送 ───────────────────────────
+
+with tab_register:
+    st.subheader("📝 注册定时推送")
+
+    st.markdown("""
+    配置你的持仓和微信推送，每个交易日 **10:00** 和 **14:30** 自动收到 A 股分析报告。
+
+    **只需要两步：**
+    """)
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.markdown("### ① 获取微信推送 key")
+        st.markdown("打开 [sct.ftqq.com](https://sct.ftqq.com) 微信扫码，复制 **SendKey**")
+        reg_sendkey = st.text_input("粘贴 SendKey", placeholder="SCTxxxxxxxx", key="reg_sendkey")
+
+    with col_b:
+        st.markdown("### ② 添加持仓")
+        reg_name = st.text_input("你的名字（用于报告抬头）", placeholder="如：小王", key="reg_name")
+
+        reg_ftype = st.selectbox("类型", ["基金", "股票"], key="reg_ftype")
+        reg_code = st.text_input("代码（6位）", placeholder="如 161725", key="reg_code")
+        reg_alert = st.number_input("单日涨跌提醒阈值（%）", min_value=1, max_value=20, value=3, key="reg_alert")
+
+        if "reg_holdings" not in st.session_state:
+            st.session_state.reg_holdings = []
+
+        if st.button("➕ 添加", key="reg_add"):
+            if reg_code and len(reg_code) == 6:
+                # 自动获取名称
+                auto_name = reg_code
+                if reg_ftype == "基金":
+                    v = api_fund_valuation(reg_code)
+                    auto_name = v["name"] if v else reg_code
+                else:
+                    q = api_stock_quote(reg_code)
+                    auto_name = q["name"] if q else reg_code
+
+                st.session_state.reg_holdings.append({
+                    "code": reg_code, "name": auto_name,
+                    "type": reg_ftype, "alert_change_pct": reg_alert,
+                })
+                st.rerun()
+            else:
+                st.error("请输入6位代码")
+
+        if st.session_state.reg_holdings:
+            st.caption(f"已添加 {len(st.session_state.reg_holdings)} 项:")
+            for i, h in enumerate(st.session_state.reg_holdings):
+                st.text(f"  {h['type']}: {h['name']}({h['code']}) | 提醒阈值: {h['alert_change_pct']}%")
+            if st.button("清空重填", key="reg_clear"):
+                st.session_state.reg_holdings = []
+                st.rerun()
+
+    st.divider()
+
+    # 生成配置
+    if reg_sendkey and reg_name and st.session_state.reg_holdings:
+        funds = []
+        stocks = []
+        for h in st.session_state.reg_holdings:
+            item = {"code": h["code"], "name": h["name"], "alert_change_pct": h["alert_change_pct"]}
+            if h["type"] == "基金":
+                item["alert_nav_below"] = 0
+                funds.append(item)
+            else:
+                item["alert_below"] = 0
+                item["alert_above"] = 99999
+                stocks.append(item)
+
+        config = {
+            "name": reg_name,
+            "sendkey": reg_sendkey,
+            "watchlist": {"stocks": stocks, "funds": funds},
+        }
+        config_json = json.dumps(config, ensure_ascii=False, indent=2)
+
+        st.markdown("### ③ 保存配置")
+        st.code(config_json, language="json")
+
+        filename = f"{reg_name}.json"
+        github_url = (
+            f"https://github.com/Feng11-kyrie/finance-agent/new/main/users"
+            f"?filename={filename}"
+        )
+        st.markdown(f"""
+        1. 点右上角复制上面这段代码
+        2. 打开 **[这个链接]({github_url})**
+        3. 在文件名框输入 `{filename}`，粘贴代码，点 **Commit** 保存
+
+        明天起你就会准时收到推送！
+        """)
 
 # ═══════════════════════════════════════════════
 # 底部
