@@ -1,0 +1,57 @@
+{
+  "name": "冯硕",
+  "sendkey": "SCT355060T0YLD22gwfltnhijVB0UiSBhV",
+  "watchlist": {
+    "stocks": [],
+    "funds": [
+      {
+        "code": "024663",
+        "name": "富国创业板人工智能ETF发起式联接C",
+        "alert_change_pct": 3,
+        "alert_nav_below": 0
+      },
+      {
+        "code": "025857",
+        "name": "华夏中证电网设备主题ETF发起式联接C",
+        "alert_change_pct": 3,
+        "alert_nav_below": 0
+      },
+      {
+        "code": "015874",
+        "name": "工银锂电池ETF联接C",
+        "alert_change_pct": 3,
+        "alert_nav_below": 0
+      },
+      {
+        "code": "014855",
+        "name": "嘉实中证半导体指数增强发起式C",
+        "alert_change_pct": 3,
+        "alert_nav_below": 0
+      },
+      {
+        "code": "023918",
+        "name": "华夏国证自由现金流ETF发起式联接C",
+        "alert_change_pct": 3,
+        "alert_nav_below": 0
+      },
+      {
+        "code": "000218",
+        "name": "国泰黄金ETF联接A",
+        "alert_change_pct": 3,
+        "alert_nav_below": 0
+      },
+      {
+        "code": "024239",
+        "name": "华夏全球科技先锋混合(QDII)C",
+        "alert_change_pct": 3,
+        "alert_nav_below": 0
+      },
+      {
+        "code": "016777",
+        "name": "嘉实中证1000指数增强发起C",
+        "alert_change_pct": 3,
+        "alert_nav_below": 0
+      }
+    ]
+  }
+}
