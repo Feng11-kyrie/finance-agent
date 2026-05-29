@@ -1,5 +1,5 @@
 """
-定时报告生成器 - 早盘 & 午盘分析
+定时报告生成器 - 早盘 & 闭盘前分析
 GitHub Actions 定时触发，通过 Server酱 推送到微信
 多用户支持：读取 users/ 目录下所有配置文件，各自推送
 """
@@ -175,7 +175,7 @@ def generate_report(report_type: str, user: dict) -> str:
             "6. 给出今日最值得关注的 2-3 个方向"
         )
     else:
-        time_desc = "下午 14:30（收盘前最后半小时）"
+        time_desc = "下午 14:10（收盘前 50 分钟）"
         focus = (
             "1. 今日全天盘面总结（指数走势、风格切换）\n"
             "2. 热点板块持续性分析\n"
@@ -268,7 +268,7 @@ def main():
     else:
         report_type = "morning" if now.hour < 12 else "afternoon"
 
-    cn_type = "早盘" if report_type == "morning" else "午盘"
+    cn_type = "早盘" if report_type == "morning" else "闭盘前"
     print(f"开始生成 {cn_type}报告 | {now:%Y-%m-%d %H:%M:%S}")
 
     users = load_all_users()
