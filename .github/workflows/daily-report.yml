@@ -51,6 +51,7 @@ jobs:
           echo "📋 报告类型: $TYPE"
 
       - name: 生成报告并推送
+        id: generate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
@@ -60,3 +61,20 @@ jobs:
         run: |
           echo "🚀 开始生成 ${REPORT_TYPE} 报告..."
           python report_generator.py "$REPORT_TYPE"
+
+      - name: 推送失败告警
+        if: failure()
+        env:
+          SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+        run: |
+          curl -s -X POST "https://sctapi.ftqq.com/${SENDKEY}.send" \
+            -d "title=❌ 金融研报推送失败" \
+            -d "desp=## ⚠️ 报告生成/推送失败
+
+          **时间：** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M')
+          **失败步骤：** ${{ steps.generate.outcome }}
+          **详情：** [查看日志](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          请检查 API Key、Google Sheets 连接或网络。
+          " 2>&1
+          echo "📤 已发送失败告警"
