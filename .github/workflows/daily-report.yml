@@ -4,14 +4,25 @@ on:
   schedule:
     # 北京时间 10:00 = UTC 02:00（周一至周五）
     - cron: '0 2 * * 1-5'
-    # 北京时间 14:10 = UTC 06:10（周一至周五，收盘前50分钟）
-    - cron: '10 6 * * 1-5'
-  workflow_dispatch:  # 允许手动触发
+    # 北京时间 14:30 = UTC 06:30（周一至周五，收盘前30分钟）
+    - cron: '30 6 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      report_type:
+        description: '报告类型'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - morning
+          - afternoon
 
 jobs:
   generate-report:
     name: 生成分析报告
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -22,9 +33,23 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
+      - name: 确定报告类型
+        id: report_type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.report_type }}" = "auto" ]; then
+              HOUR=$(date -u +%H)
+              if [ $HOUR -lt 4 ]; then echo "type=morning" >> $GITHUB_OUTPUT; else echo "type=afternoon" >> $GITHUB_OUTPUT; fi
+            else
+              echo "type=${{ github.event.inputs.report_type }}" >> $GITHUB_OUTPUT
+            fi
+          else
+            HOUR=$(date -u +%H)
+            if [ $HOUR -lt 4 ]; then echo "type=morning" >> $GITHUB_OUTPUT; else echo "type=afternoon" >> $GITHUB_OUTPUT; fi
+          fi
+          echo "Will run: ${{ steps.report_type.outputs.type }} report"
+
       - name: 生成报告并推送
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
-        run: python report_generator.py
+        run: python report_generator.py ${{ steps.report_type.outputs.type }}
