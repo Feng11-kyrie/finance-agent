@@ -257,16 +257,26 @@ def push_to_user(user: dict, title: str, content: str) -> bool:
 def main():
     now = datetime.now(BEIJING_TZ)
 
+    if len(sys.argv) > 1:
+        report_type = sys.argv[1]
+    else:
+        report_type = "morning" if now.hour < 12 else "afternoon"
+
+    # 时间窗口保护：防止休眠唤醒后在非合理时间跑报告
+    if report_type == "morning":
+        if not (9 <= now.hour < 12):
+            print(f"跳过: 早盘报告时间窗口为 9:00-12:00，当前 {now:%H:%M}")
+            return
+    else:
+        if not (14 <= now.hour < 17):
+            print(f"跳过: 闭盘前报告时间窗口为 14:00-17:00，当前 {now:%H:%M}")
+            return
+
     trading, reason = is_trading_day()
     print(f"交易日检查: {'✅ 是' if trading else '❌ 否'} — {reason}")
     if not trading:
         print(f"跳过报告: {reason}")
         return
-
-    if len(sys.argv) > 1:
-        report_type = sys.argv[1]
-    else:
-        report_type = "morning" if now.hour < 12 else "afternoon"
 
     cn_type = "早盘" if report_type == "morning" else "闭盘前"
     print(f"开始生成 {cn_type}报告 | {now:%Y-%m-%d %H:%M:%S}")
