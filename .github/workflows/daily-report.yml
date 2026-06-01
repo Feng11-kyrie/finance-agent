@@ -54,12 +54,9 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           REPORT_TYPE: ${{ steps.report_type.outputs.type }}
         run: |
           echo "🚀 开始生成 ${REPORT_TYPE} 报告..."
           python report_generator.py "$REPORT_TYPE"
-
-      - name: 生成报告并推送
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python report_generator.py ${{ steps.report_type.outputs.type }}

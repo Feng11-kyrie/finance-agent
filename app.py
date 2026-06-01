@@ -965,42 +965,29 @@ with tab_register:
 
     st.divider()
 
-    # 生成配置
-    if reg_sendkey and reg_name and st.session_state.reg_holdings:
-        funds = []
-        stocks = []
-        for h in st.session_state.reg_holdings:
-            item = {"code": h["code"], "name": h["name"], "alert_change_pct": h["alert_change_pct"]}
-            if h["type"] == "基金":
-                item["alert_nav_below"] = 0
-                funds.append(item)
-            else:
-                item["alert_below"] = 0
-                item["alert_above"] = 99999
-                stocks.append(item)
+    # 提交到 Google Sheets
+    if reg_name and st.session_state.reg_holdings:
+        st.markdown("### ③ 提交")
+        if st.button("🚀 提交，明天起收到推送", type="primary", key="reg_submit"):
+            funds = []
+            stocks = []
+            for h in st.session_state.reg_holdings:
+                item = {"code": h["code"], "name": h["name"], "alert_change_pct": h["alert_change_pct"]}
+                if h["type"] == "基金":
+                    item["alert_nav_below"] = 0
+                    funds.append(item)
+                else:
+                    item["alert_below"] = 0
+                    stocks.append(item)
 
-        config = {
-            "name": reg_name,
-            "sendkey": reg_sendkey,
-            "watchlist": {"stocks": stocks, "funds": funds},
-        }
-        config_json = json.dumps(config, ensure_ascii=False, indent=2)
-
-        st.markdown("### ③ 保存配置")
-        st.code(config_json, language="json")
-
-        filename = f"{reg_name}.json"
-        github_url = (
-            f"https://github.com/Feng11-kyrie/finance-agent/new/main/users"
-            f"?filename={filename}"
-        )
-        st.markdown(f"""
-        1. 点右上角复制上面这段代码
-        2. 打开 **[这个链接]({github_url})**
-        3. 在文件名框输入 `{filename}`，粘贴代码，点 **Commit** 保存
-
-        明天起你就会准时收到推送！
-        """)
+            try:
+                import sheets_db
+                sheets_db.add_user_holdings(reg_name, funds, stocks)
+                st.success(f"✅ 已保存！明天起 {reg_name} 就会准时收到推送 🎉")
+                st.balloons()
+            except Exception as e:
+                st.error(f"提交失败: {e}")
+                st.info("请截屏发给管理员手动添加")
 
 # ═══════════════════════════════════════════════
 # 底部
