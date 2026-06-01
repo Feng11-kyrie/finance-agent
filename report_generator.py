@@ -230,7 +230,7 @@ def generate_report(report_type: str, user: dict) -> str:
 # ═══════════════════════════════════════════════
 
 def push_to_user(user: dict, title: str, content: str) -> bool:
-    sendkey = user.get("sendkey", "")
+    sendkey = user.get("sendkey", "") or os.environ.get("SERVERCHAN_SENDKEY", "")
     if not sendkey:
         print(f"  ⚠️ {user.get('name','?')} 未配置 sendkey，跳过")
         return False
