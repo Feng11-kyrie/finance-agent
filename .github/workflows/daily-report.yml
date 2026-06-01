@@ -39,15 +39,24 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ "${{ github.event.inputs.report_type }}" = "auto" ]; then
               HOUR=$(date -u +%H)
-              if [ $HOUR -lt 4 ]; then echo "type=morning" >> $GITHUB_OUTPUT; else echo "type=afternoon" >> $GITHUB_OUTPUT; fi
+              if [ $HOUR -lt 4 ]; then TYPE="morning"; else TYPE="afternoon"; fi
             else
-              echo "type=${{ github.event.inputs.report_type }}" >> $GITHUB_OUTPUT
+              TYPE="${{ github.event.inputs.report_type }}"
             fi
           else
             HOUR=$(date -u +%H)
-            if [ $HOUR -lt 4 ]; then echo "type=morning" >> $GITHUB_OUTPUT; else echo "type=afternoon" >> $GITHUB_OUTPUT; fi
+            if [ $HOUR -lt 4 ]; then TYPE="morning"; else TYPE="afternoon"; fi
           fi
-          echo "Will run: ${{ steps.report_type.outputs.type }} report"
+          echo "type=$TYPE" >> $GITHUB_OUTPUT
+          echo "📋 报告类型: $TYPE"
+
+      - name: 生成报告并推送
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REPORT_TYPE: ${{ steps.report_type.outputs.type }}
+        run: |
+          echo "🚀 开始生成 ${REPORT_TYPE} 报告..."
+          python report_generator.py "$REPORT_TYPE"
 
       - name: 生成报告并推送
         env:
