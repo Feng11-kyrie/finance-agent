@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .env
 .streamlit/secrets.toml
+面试准备*

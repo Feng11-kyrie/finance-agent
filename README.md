@@ -128,23 +128,3 @@ python report_generator.py morning
 4. 失败处理 → Server酱 告警 + GitHub Actions 邮件通知
 ```
 
-## 🎓 面试回答指南
-
-### Q: 这个项目的技术难点是什么？
-**A:** 三个点：
-1. **无服务器架构下的定时任务可靠性** — GitHub Actions cron 不够精确（可能延迟几分钟），通过交易日检测 + 时间窗口保护双重保证在合理时段运行
-2. **多数据源的容错聚合** — 新浪/东方财富/天天基金可能同时挂掉某几个，通过 try/except 逐源降级
-3. **零成本的多用户系统** — 用 Google Sheets 替代数据库，用 Server酱替代短信服务，月度费用 ≈ ¥0
-
-### Q: 如果有 10000 个用户怎么办？
-**A:** 
-- Google Sheets → 迁移到 PostgreSQL（保留相同的接口 `sheets_db.py`）
-- Server酱 → 切换为微信公众号模板消息
-- GitHub Actions → 迁移到阿里云 SAE 或 K8s CronJob
-- 架构设计中 `sheets_db.py` 作为抽象层，切换存储仅需改这一个文件
-
-### Q: 如何保证 AI 报告质量？
-**A:**
-- 结构化的 Prompt 模板：每个报告类型有固定的分析框架
-- 强制要求逐项点评每支持仓，防止 AI 泛泛而谈
-- 提供充分的上下文数据（大盘指数 + 热门板块 + 持仓明细），减少 AI 幻觉
