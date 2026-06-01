@@ -13,12 +13,14 @@ from datetime import datetime, timezone, timedelta
 import anthropic
 import requests
 
+# 导入 Google Sheets 数据库
+import sheets_db
+
 BEIJING_TZ = timezone(timedelta(hours=8))
 SINA_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Referer": "https://finance.sina.com.cn/",
 }
-USERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users")
 
 
 # ═══════════════════════════════════════════════
@@ -46,19 +48,8 @@ def is_trading_day() -> tuple[bool, str]:
 # ═══════════════════════════════════════════════
 
 def load_all_users() -> list[dict]:
-    users = []
-    if not os.path.isdir(USERS_DIR):
-        return users
-    for fname in sorted(os.listdir(USERS_DIR)):
-        if fname.endswith(".json"):
-            try:
-                with open(os.path.join(USERS_DIR, fname)) as f:
-                    user = json.load(f)
-                    user["_file"] = fname
-                    users.append(user)
-            except Exception:
-                pass
-    return users
+    """加载用户（优先 Google Sheets，失败回退本地文件）"""
+    return sheets_db.load_all_users()
 
 
 # ═══════════════════════════════════════════════
