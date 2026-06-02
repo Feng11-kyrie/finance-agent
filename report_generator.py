@@ -184,18 +184,26 @@ def generate_report(report_type: str, user: dict) -> str:
             "7. 长期配置建议：你的组合缺少什么类型的资产（如债券、消费、医药等）"
         )
 
+    # 构建持仓清单（强制逐支列出）
+    holding_lines = holdings.strip().split("\n")
+    holding_list = "\n".join(f"  {i+1}. {h}" for i, h in enumerate(holding_lines) if h.strip())
+
     prompt = (
         f"当前时间：{time_desc}\n"
         f"日期：{datetime.now(BEIJING_TZ):%Y年%m月%d日}\n"
         f"用户名：{user.get('name','')}\n\n"
         f"## 大盘指数\n" + "\n".join(index_lines) +
         f"\n\n## 热门板块\n" + "\n".join(sector_lines or ["暂无数据"]) +
-        f"\n\n## 用户持仓\n{holdings}\n\n"
+        f"\n\n## 用户持仓（共 {len([h for h in holding_lines if h.strip()])} 支）\n{holding_list}\n\n"
         f"请基于以上数据生成一份专业的A股{report_type}报告，要求：\n{focus}\n\n"
-        f"回复格式：Markdown，简洁有力。开头写「📊 A股{report_type}报告 | "
-        f"{datetime.now(BEIJING_TZ):%m月%d日} | {user.get('name','')}」"
-        f"结尾标注「🤖 由金融研报Agent自动生成 | {datetime.now(BEIJING_TZ):%H:%M}」"
-        f"不要写免责声明或投资建议警告。"
+        f"⚠️ 重要格式要求：\n"
+        f"1. 对以上列出的每一支持仓，必须单独列一个小标题（### 基金名），下面写100-150字分析\n"
+        f"2. 逐支诊断时，必须写明：今日表现 -> 涨跌原因 -> 操作建议（持有/加仓/减仓）\n"
+        f"3. 不许合并、不许省略、不许用「等」字跳过\n"
+        f"4. 开头写「📊 A股{report_type}报告 | "
+        f"{datetime.now(BEIJING_TZ):%m月%d日} | {user.get('name','')}」\n"
+        f"5. 结尾标注「🤖 由金融研报Agent自动生成 | {datetime.now(BEIJING_TZ):%H:%M}」\n"
+        f"6. 不要写免责声明或投资建议警告"
     )
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -206,8 +214,8 @@ def generate_report(report_type: str, user: dict) -> str:
     print(f"  调用 deepseek-chat, prompt {len(prompt)} 字符")
 
     response = client.messages.create(
-        model="deepseek-chat", max_tokens=3072,
-        system="你是一位专业A股分析师。根据提供的市场数据生成高质量分析报告。",
+        model="deepseek-chat", max_tokens=4096,
+        system="你是一位专业A股分析师，你的核心职责是对用户的每支持仓基金进行逐一深度诊断。你必须遵守以下规则：1) 每支基金必须单独分析，用 ### 标题列出；2) 不能合并、不能省略、不能只说「整体来看」；3) 每支基金至少写 100 字分析。",
         messages=[{"role": "user", "content": prompt}],
     )
     for block in response.content:
