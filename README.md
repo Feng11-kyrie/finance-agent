@@ -21,10 +21,9 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-| Streamlit Web UI | WeChat Push |
-|:--:|:--:|
-| <!-- ![screenshot](docs/web.png) --> | <!-- ![wechat](docs/wechat.jpg) --> |
-| *Screenshot coming soon* | *Screenshot coming soon* |
+| Streamlit Web UI |
+|:--:|
+| ![Streamlit Demo](docs/demo.png) |
 
 ---
 
