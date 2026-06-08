@@ -102,6 +102,8 @@ def get_holdings_for_user(user: dict) -> str:
 
     for s in watchlist.get("stocks", [])[:10]:
         code = s.get("code", "")
+        # 确保股票代码是6位（Google Sheets 可能吞掉前导零）
+        code = code.zfill(6)
         prefix = "sh" if code.startswith("6") else "sz"
         try:
             r = requests.get(f"https://hq.sinajs.cn/list={prefix}{code}",
@@ -119,6 +121,8 @@ def get_holdings_for_user(user: dict) -> str:
 
     for f_item in watchlist.get("funds", [])[:10]:
         code = f_item.get("code", "")
+        # 确保基金代码是6位（Google Sheets 可能吞掉前导零）
+        code = code.zfill(6)
         try:
             r = requests.get(f"https://fundgz.1234567.com.cn/js/{code}.js", timeout=8)
             match = re.search(r"jsonpgz\((.+)\)", r.text)
@@ -129,6 +133,8 @@ def get_holdings_for_user(user: dict) -> str:
                     f"净值{d.get('dwjz','?')}, 估算{d.get('gsz','?')} "
                     f"({float(d.get('gszzl',0)):+.2f}%)"
                 )
+            else:
+                lines.append(f"{f_item.get('name', code)}({code}): API返回异常")
         except Exception:
             lines.append(f"{f_item.get('name', code)}({code}): 获取失败")
 
