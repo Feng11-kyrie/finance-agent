@@ -141,10 +141,18 @@ def get_holdings_for_user(user: dict) -> str:
 
 def generate_report(report_type: str, user: dict) -> str:
     print(f"[{datetime.now(BEIJING_TZ):%H:%M:%S}] 为用户 {user.get('name','?')} 生成报告...")
+    # 调试：打印用户持仓结构
+    wl = user.get("watchlist", {})
+    print(f"  🔍 持仓结构: stocks={len(wl.get('stocks',[]))}, funds={len(wl.get('funds',[]))}")
+    for s in wl.get("stocks", []):
+        print(f"    📈 {s}")
+    for f_item in wl.get("funds", []):
+        print(f"    📊 {f_item}")
 
     indices = get_market_indices()
     sectors = get_hot_sectors()
     holdings = get_holdings_for_user(user)
+    print(f"  📝 holdings 输出: {holdings[:200]}...")
 
     index_lines = []
     for name, d in indices.items():
