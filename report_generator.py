@@ -228,7 +228,25 @@ def generate_report(report_type: str, user: dict) -> str:
 # 推送
 # ═══════════════════════════════════════════════
 
-def push_to_user(user: dict, title: str, content: str) -> bool:
+import subprocess
+
+
+def _push_via_cc_connect(content: str) -> bool:
+    """通过 cc-connect 推送到微信 Bot 好友"""
+    try:
+        result = subprocess.run(
+            ["cc-connect", "send", "--stdin", "-p", "main"],
+            input=content.encode(),
+            timeout=30,
+            capture_output=True,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _push_via_serverchan(user: dict, title: str, content: str) -> bool:
+    """通过 Server酱 推送到微信（兜底方案）"""
     sendkey = user.get("sendkey", "") or os.environ.get("SERVERCHAN_SENDKEY", "")
     if not sendkey:
         print(f"  ⚠️ {user.get('name','?')} 未配置 sendkey，跳过")
@@ -239,14 +257,35 @@ def push_to_user(user: dict, title: str, content: str) -> bool:
             data={"title": title, "desp": content}, timeout=15,
         )
         if r.json().get("code") == 0:
-            print(f"  ✅ 已推送给 {user.get('name','?')}")
             return True
         else:
-            print(f"  ❌ 推送失败: {r.json()}")
+            print(f"  ❌ Server酱推送失败: {r.json()}")
             return False
     except Exception as e:
-        print(f"  ❌ 推送异常: {e}")
+        print(f"  ❌ Server酱推送异常: {e}")
         return False
+
+
+def push_to_user(user: dict, title: str, content: str) -> bool:
+    """
+    智能推送：优先微信 Bot（cc-connect），电脑未开机时回退 Server酱。
+    不会重复推送。
+    """
+    name = user.get("name", "?")
+
+    # 先试 cc-connect（电脑开着就能推微信 Bot）
+    if _push_via_cc_connect(content):
+        print(f"  ✅ [微信Bot] 已推送给 {name}")
+        return True
+
+    # cc-connect 没运行 → 电脑关了 → 回退 Server酱
+    print(f"  ⚠️ cc-connect 不可用，回退 Server酱...")
+    if _push_via_serverchan(user, title, content):
+        print(f"  ✅ [Server酱] 已推送给 {name}")
+        return True
+
+    print(f"  ❌ 所有推送方式均失败")
+    return False
 
 
 # ═══════════════════════════════════════════════
