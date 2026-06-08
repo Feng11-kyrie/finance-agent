@@ -21,4 +21,4 @@ if ! pgrep -f "cc-connect" > /dev/null 2>&1; then
 fi
 
 # 运行报告
-python report_generator.py "$1"
+python3 report_generator.py "$1"
