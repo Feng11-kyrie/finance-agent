@@ -2,5 +2,6 @@ __pycache__/
 *.pyc
 .env
 .streamlit/secrets.toml
+cron.log
 面试准备*
 面试自我介绍*
