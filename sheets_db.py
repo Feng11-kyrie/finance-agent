@@ -54,6 +54,8 @@ def load_all_users() -> list[dict]:
             users[name] = {"name": name, "watchlist": {"stocks": [], "funds": []}}
 
         code = str(row.get("code", "")).strip()
+        # Google Sheets 可能把代码当数字吞掉前导零，补齐到6位
+        code = code.zfill(6)
         item_name = str(row.get("item_name", "")).strip()
         item_type = str(row.get("type", "fund")).strip()
 
@@ -103,18 +105,21 @@ def add_user_holdings(name: str, funds: list[dict], stocks: list[dict]) -> bool:
     sheet = _get_sheet()
     rows = []
     for f in funds:
+        code = str(f.get("code", ""))
+        # 单引号前缀防止 Google Sheets 把代码当数字（吞掉前导零）
         rows.append([
             name,
-            str(f.get("code", "")),
+            f"'{code}",
             str(f.get("name", "")),
             "fund",
             int(f.get("alert_change_pct", 3)),
             int(f.get("alert_nav_below", 0)),
         ])
     for s in stocks:
+        code = str(s.get("code", ""))
         rows.append([
             name,
-            str(s.get("code", "")),
+            f"'{code}",
             str(s.get("name", "")),
             "stock",
             int(s.get("alert_change_pct", 5)),
