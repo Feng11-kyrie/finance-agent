@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+.gcp-sa.json
 .streamlit/secrets.toml
 cron.log
 面试准备*
