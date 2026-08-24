@@ -13,6 +13,8 @@ from datetime import datetime, timezone, timedelta
 import anthropic
 import requests
 
+from config_loader import get_model
+
 # 导入 Google Sheets 数据库
 import sheets_db
 
@@ -217,10 +219,11 @@ def generate_report(report_type: str, user: dict) -> str:
         raise RuntimeError("ANTHROPIC_API_KEY 未配置")
 
     client = anthropic.Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
-    print(f"  调用 deepseek-chat, prompt {len(prompt)} 字符")
+    model = get_model("report")
+    print(f"  调用 {model}, prompt {len(prompt)} 字符")
 
     response = client.messages.create(
-        model="deepseek-chat", max_tokens=4096,
+        model=model, max_tokens=4096,
         system="你是一位专业A股分析师，你的核心职责是对用户的每支持仓基金进行逐一深度诊断。你必须遵守以下规则：1) 每支基金必须单独分析，用 ### 标题列出；2) 不能合并、不能省略、不能只说「整体来看」；3) 每支基金至少写 100 字分析。",
         messages=[{"role": "user", "content": prompt}],
     )

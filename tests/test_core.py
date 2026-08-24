@@ -1,5 +1,5 @@
 """
-面试展示用测试 — 覆盖核心函数
+测试 — 覆盖核心函数与 Agent 逻辑
 运行: python -m pytest tests/ -v
 """
 
@@ -26,7 +26,6 @@ class TestTradingDay:
     def test_weekend_return_false(self):
         """周末返回 False"""
         from report_generator import is_trading_day
-        # Mock datetime.now to return a Saturday
         mock_now = datetime(2026, 5, 30, 10, 0, tzinfo=timezone(timedelta(hours=8)))
         with patch("report_generator.datetime") as mock_dt:
             mock_dt.now.return_value = mock_now
@@ -39,7 +38,6 @@ class TestTradingDay:
         from report_generator import is_trading_day
         mock_now = datetime(2026, 6, 1, 10, 0, tzinfo=timezone(timedelta(hours=8)))
         mock_response = MagicMock()
-        # 新浪格式: 0=name,1=open,2=prev_close,3=price,4=high,5=low,6,7=占位,8=volume
         mock_response.text = (
             'var hq_str_sh000001="上证指数,3100,3150,3200.5,0,0,0,0,1000000,0,...";'
         )
@@ -77,7 +75,6 @@ class TestMarketData:
         """解析新浪指数数据 — 格式: name,open,prev_close,price,high,low,?,?,volume,amount"""
         from report_generator import get_market_indices
         mock_response = MagicMock()
-        # 新浪数据格式: 0=name,1=open,2=prev_close,3=price,4=high,5=low,6,7=占位,8=volume
         mock_response.text = (
             'var hq_str_sh000001='
             '"上证指数,3190.00,3200.00,3199.50,3210.50,3180.00,0,0,1000000,500000,'
@@ -152,29 +149,110 @@ class TestReportGeneration:
 
 
 # ═══════════════════════════════════════════════
-# 时间窗口
+# 配置 / 模型名
 # ═══════════════════════════════════════════════
 
-class TestTimeWindow:
-    """测试报告时间窗口保护 — 在 main() 中已内联实现"""
+class TestConfig:
+    """测试集中式配置：模型名统一从 config.json 读取"""
 
-    def test_morning_window_bounds(self):
-        """早盘窗口: 9:00-12:00"""
-        # 9:00 在窗口内
-        assert 9 <= 9 < 12
-        # 11:59 在窗口内
-        assert 9 <= 11 < 12
-        # 8:59 不在窗口内
-        assert not (9 <= 8 < 12)
-        # 12:00 不在窗口内
-        assert not (9 <= 12 < 12)
+    def test_get_model(self):
+        from config_loader import get_model
+        assert get_model("fast") == "deepseek-v4-flash"
+        assert get_model("pro") == "deepseek-v4-pro"
+        assert get_model("report") == "deepseek-v4-flash"
 
-    def test_afternoon_window_bounds(self):
-        """午后窗口: 14:00-17:00"""
-        assert 14 <= 14 < 17
-        assert 14 <= 16 < 17
-        assert not (14 <= 13 < 17)
-        assert not (14 <= 17 < 17)
+    def test_get_model_unknown_fallback(self):
+        from config_loader import get_model
+        assert get_model("unknown_kind") == "deepseek-v4-flash"
+
+
+# ═══════════════════════════════════════════════
+# 工具执行器
+# ═══════════════════════════════════════════════
+
+class TestExecuteTool:
+    """测试 execute_tool（mock 数据层，不发起真实请求）"""
+
+    def test_search_stock(self):
+        from agent import execute_tool
+        with patch("agent.api_search_stock", return_value=[{"code": "300750", "name": "宁德时代"}]):
+            out = execute_tool("search_stock", {"keyword": "宁德"})
+        assert "300750" in out
+        assert "宁德时代" in out
+
+    def test_get_stock_quote(self):
+        from agent import execute_tool
+        quote = {
+            "name": "贵州茅台", "code": "600519", "price": 1500.0,
+            "open": 1490.0, "high": 1510.0, "low": 1480.0, "prev_close": 1495.0,
+            "volume_hands": 1000, "amount": 150000000.0, "turnover_rate": 0.5,
+            "market_cap": 1.8e12, "change_amount": 5.0, "change_pct": 0.33,
+        }
+        with patch("agent.api_stock_quote", return_value=quote):
+            out = execute_tool("get_stock_quote", {"stock_code": "600519"})
+        assert "贵州茅台" in out
+        assert "600519" in out
+
+    def test_get_stock_quote_not_found(self):
+        from agent import execute_tool
+        with patch("agent.api_stock_quote", return_value=None):
+            out = execute_tool("get_stock_quote", {"stock_code": "999999"})
+        assert "未获取到" in out
+
+    def test_get_fund_info(self):
+        from agent import execute_tool
+        fund = {
+            "name": "招商中证白酒", "code": "161725", "type": "指数型",
+            "company": "招商基金", "manager": "侯昊", "min_subscribe": 10,
+            "is_buyable": True,
+        }
+        with patch("agent.api_fund_info", return_value=fund):
+            out = execute_tool("get_fund_info", {"fund_code": "161725"})
+        assert "招商中证白酒" in out
+        assert "161725" in out
+
+    def test_unknown_tool(self):
+        from agent import execute_tool
+        assert execute_tool("does_not_exist", {}) == "未知工具"
+
+
+# ═══════════════════════════════════════════════
+# Agent 循环
+# ═══════════════════════════════════════════════
+
+class TestRunAgent:
+    """测试 run_agent 循环（mock Anthropic 客户端）"""
+
+    def _text_block(self, text):
+        return type("TextBlock", (), {"type": "text", "text": text})()
+
+    def _tool_block(self, name, input_, id_):
+        return type("ToolBlock", (), {"type": "tool_use", "name": name, "input": input_, "id": id_})()
+
+    def test_single_tool_then_answer(self):
+        """第一轮调用工具，第二轮给出最终回答"""
+        from agent import run_agent
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = [
+            MagicMock(content=[self._tool_block("get_stock_quote", {"stock_code": "600519"}, "tool_1")]),
+            MagicMock(content=[self._text_block("## 分析报告\n茅台行情良好")]),
+        ]
+        status = MagicMock()
+        with patch("agent.get_api_key", return_value="sk-test"), \
+             patch("agent.anthropic.Anthropic", return_value=mock_client), \
+             patch("agent.execute_tool", return_value="贵州茅台(600519): ¥1500"):
+            result = run_agent("分析贵州茅台", status)
+
+        assert "茅台" in result
+        assert mock_client.messages.create.call_count == 2
+        status.code.assert_called()
+
+    def test_no_api_key(self):
+        """未配置 API Key 时直接返回提示"""
+        from agent import run_agent
+        with patch("agent.get_api_key", return_value=""):
+            result = run_agent("分析贵州茅台", MagicMock())
+        assert "未配置 API Key" in result
 
 
 # ═══════════════════════════════════════════════
