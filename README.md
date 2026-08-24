@@ -6,6 +6,8 @@
 [![GitHub Actions](https://img.shields.io/badge/schedule-GitHub%20Actions-2088FF.svg)](https://github.com/features/actions)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
+🚀 **在线体验（网页版）：** https://finance-agent-pabcy4yeagmhvj25gaxz3z.streamlit.app/
+
 **English** | [中文](#中文)
 
 > An AI agent that autonomously analyzes 5,000+ Chinese A-shares and 10,000+ mutual funds, generating daily research reports pushed to WeChat — fully automated, zero operating cost.
@@ -14,6 +16,8 @@
 
 <!-- TODO: 上传录屏到 YouTube/B站后替换下面链接 -->
 > *Demo video coming soon*
+
+**🌐 无需安装，直接打开：** https://finance-agent-pabcy4yeagmhvj25gaxz3z.streamlit.app/
 
 **Try it yourself:**
 ```bash
