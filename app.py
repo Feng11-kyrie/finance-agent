@@ -14,7 +14,6 @@ import holdings_import
 import sheets_db
 import ui
 from agent import run_agent
-from config_loader import get_model
 from data_api import api_stock_quote, api_fund_valuation
 
 # ═══════════════════════════════════════════════
@@ -310,7 +309,7 @@ with tab_analyze:
         with col2:
             fast_mode = st.toggle(
                 "快速模式", value=True,
-                help="快速模式用 Flash 模型，秒级响应；关闭用 Pro 模型，分析更详细但稍慢",
+                help="快速模式响应更快；关闭后分析更详细，但会稍慢",
             )
         with col3:
             analyze_btn = st.button(
@@ -318,9 +317,7 @@ with tab_analyze:
             )
 
     if analyze_btn and user_input:
-        with st.spinner(
-            f"Agent 正在分析...（模型：{get_model('pro' if not fast_mode else 'fast')}）"
-        ):
+        with st.spinner("Agent 正在分析..."):
             status_area = st.empty()
             result = run_agent(user_input, status_area, fast_mode=fast_mode)
             status_area.empty()
@@ -636,5 +633,5 @@ with tab_register:
 
 ui.footer(
     "以上分析基于公开数据，不构成投资建议。股市有风险，入市需谨慎。"
-    "<br>数据来源：东方财富 / 天天基金 · 模型：DeepSeek V4"
+    "<br>数据来源：东方财富 / 天天基金"
 )
