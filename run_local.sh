@@ -5,6 +5,9 @@
 set -e
 cd "$(dirname "$0")"
 
+# cron 的 PATH 很短，补上 npm 全局 bin（cc-connect 安装在这里）
+export PATH="$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 # 加载环境变量
 set -a
 source .env

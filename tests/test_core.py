@@ -64,6 +64,18 @@ class TestTradingDay:
                 assert is_trading is False
 
 
+    def test_network_error_does_not_skip_silently(self):
+        """网络异常不能当成休市，否则会漏报一整天"""
+        from report_generator import is_trading_day
+        mock_now = datetime(2026, 6, 1, 10, 0, tzinfo=timezone(timedelta(hours=8)))
+        with patch("report_generator.datetime") as mock_dt:
+            mock_dt.now.return_value = mock_now
+            with patch("report_generator.requests.get", side_effect=Exception("timeout")):
+                is_trading, reason = is_trading_day()
+        assert is_trading is True
+        assert "无法确认" in reason
+
+
 # ═══════════════════════════════════════════════
 # 行情数据
 # ═══════════════════════════════════════════════
@@ -139,7 +151,7 @@ class TestReportGeneration:
 
         with patch("report_generator.get_market_indices", return_value=mock_indices), \
              patch("report_generator.get_hot_sectors", return_value=mock_sectors), \
-             patch("report_generator.get_holdings_for_user", return_value=mock_holdings), \
+             patch("report_generator.get_holdings_for_user", return_value=(mock_holdings, 1, 1)), \
              patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=False):
             with patch("report_generator.anthropic.Anthropic") as mock_client:
                 mock_client.return_value.messages.create.return_value = mock_response
@@ -277,7 +289,7 @@ class TestSheetsDB:
         mock_sheet = MagicMock()
         mock_sheet.get_all_records.return_value = [
             {"name": "张三", "code": "161725", "item_name": "白酒", "type": "fund",
-             "alert_change_pct": 3, "alert_nav_below": 0},
+             "alert_change_pct": 3, "alert_nav_below": 0, "cc_target": "alice"},
             {"name": "张三", "code": "000218", "item_name": "黄金", "type": "fund",
              "alert_change_pct": 3, "alert_nav_below": 0},
             {"name": "李四", "code": "600519", "item_name": "茅台", "type": "stock",
@@ -288,8 +300,278 @@ class TestSheetsDB:
             assert len(users) == 2
             zs = next(u for u in users if u["name"] == "张三")
             assert len(zs["watchlist"]["funds"]) == 2
+            assert zs["cc_target"] == "alice"
             ls = next(u for u in users if u["name"] == "李四")
             assert len(ls["watchlist"]["stocks"]) == 1
+
+
+    def test_load_users_reads_sendkey_and_dedupes(self):
+        """重复导入同代码只保留一条，并读取 sendkey"""
+        import sheets_db
+        mock_sheet = MagicMock()
+        mock_sheet.get_all_records.return_value = [
+            {"name": "王五", "code": "000218", "item_name": "黄金",
+             "type": "fund", "sendkey": "SCT1"},
+            {"name": "王五", "code": "000218", "item_name": "黄金",
+             "type": "fund", "sendkey": "SCT1"},
+        ]
+        with patch("sheets_db._get_sheet", return_value=mock_sheet):
+            users = sheets_db.load_all_users()
+        assert len(users) == 1
+        assert users[0]["sendkey"] == "SCT1"
+        assert len(users[0]["watchlist"]["funds"]) == 1
+
+    def test_add_user_holdings_extends_headers_and_writes_sendkey(self):
+        """旧 6 列表格自动补 G/H 表头，并写入 sendkey"""
+        import sheets_db
+        mock_sheet = MagicMock()
+        mock_sheet.get_all_values.return_value = [[
+            "name", "code", "item_name", "type",
+            "alert_change_pct", "alert_nav_below",
+        ]]
+        with patch("sheets_db._get_sheet", return_value=mock_sheet):
+            sheets_db.add_user_holdings(
+                "张三",
+                [{"code": "000218", "name": "黄金"}],
+                [],
+                sendkey="SCT1",
+            )
+        mock_sheet.update.assert_called_once_with(
+            "G1:H1", [["sendkey", "cc_target"]]
+        )
+        row = mock_sheet.append_rows.call_args.args[0][0]
+        assert len(row) == 8
+        assert row[1] == "'000218"
+        assert row[6] == "SCT1"
+
+    def test_ensure_headers_on_empty_sheet(self):
+        import sheets_db
+        mock_sheet = MagicMock()
+        mock_sheet.get_all_values.return_value = []
+        with patch("sheets_db._get_sheet", return_value=mock_sheet):
+            sheets_db.ensure_headers()
+        mock_sheet.update.assert_called_once_with(
+            "A1:H1", [sheets_db.SHEET_HEADERS]
+        )
+
+
+# ═══════════════════════════════════════════════
+# 数据接口修复：基金估值换源 / 详情 JSON / 板块 Referer
+# ═══════════════════════════════════════════════
+
+class TestFundDataFixes:
+    def _resp(self, payload):
+        resp = MagicMock()
+        resp.json.return_value = payload
+        resp.text = json.dumps(payload, ensure_ascii=False)
+        return resp
+
+    def test_fund_valuation_without_estimate(self):
+        """GSZ 为空时退回最新净值，并标记 is_estimate=False"""
+        from data_api import api_fund_valuation
+        payload = {"Datas": [{
+            "FCODE": "000218", "SHORTNAME": "国泰黄金ETF联接A",
+            "PDATE": "2026-10-26", "NAV": "3.1049", "NAVCHGRT": "-0.32",
+            "GSZ": None, "GSZZL": None, "GZTIME": None,
+        }]}
+        with patch("data_api.SESSION.get", return_value=self._resp(payload)):
+            val = api_fund_valuation("000218")
+        assert val["name"] == "国泰黄金ETF联接A"
+        assert val["nav"] == 3.1049
+        assert val["is_estimate"] is False
+        assert val["estimated_nav"] == 3.1049
+        assert val["estimated_change_pct"] == -0.32
+
+    def test_fund_valuation_with_estimate(self):
+        """有 GSZ/GSZZL 时按实时估值返回"""
+        from data_api import api_fund_valuation
+        payload = {"Datas": [{
+            "FCODE": "161725", "SHORTNAME": "招商中证白酒",
+            "PDATE": "2026-10-26", "NAV": "0.5459", "NAVCHGRT": "2.13",
+            "GSZ": "0.5600", "GSZZL": "2.58", "GZTIME": "2026-10-27 10:00",
+        }]}
+        with patch("data_api.SESSION.get", return_value=self._resp(payload)):
+            val = api_fund_valuation("161725")
+        assert val["is_estimate"] is True
+        assert val["estimated_nav"] == 0.56
+        assert val["estimated_change_pct"] == 2.58
+
+    def test_fund_valuation_fallback_to_nav_history(self):
+        """主接口失败时退回净值历史，并用基金详情补名称"""
+        from data_api import api_fund_valuation
+        with patch("data_api.SESSION.get", side_effect=Exception("blocked")), \
+             patch("data_api.api_fund_nav_history", return_value=[{
+                 "date": "2026-10-26", "nav": 3.1049, "acc_nav": 3.1049,
+                 "daily_change_pct": -0.32,
+             }]), \
+             patch("data_api.api_fund_info", return_value={"name": "国泰黄金ETF联接A"}):
+            val = api_fund_valuation("000218")
+        assert val["is_estimate"] is False
+        assert val["name"] == "国泰黄金ETF联接A"
+        assert val["nav"] == 3.1049
+
+    def test_fund_info_plain_json(self):
+        """接口返回纯 JSON（非 JSONP）时也能解析"""
+        from data_api import api_fund_info
+        payload = {"Datas": [{"FundBaseInfo": {
+            "FCODE": "000218", "SHORTNAME": "国泰黄金ETF联接A",
+            "FTYPE": "指数型-其他", "JJGS": "国泰基金", "JJJL": "艾小军",
+            "MINSG": 10, "ISBUY": "1",
+        }}]}
+        resp = MagicMock()
+        resp.text = json.dumps(payload, ensure_ascii=False)
+        with patch("data_api.SESSION.get", return_value=resp):
+            info = api_fund_info("000218")
+        assert info["code"] == "000218"
+        assert info["manager"] == "艾小军"
+        assert info["is_buyable"] is True
+
+    def test_hot_sectors_sends_referer(self):
+        """板块接口必须带 quote 站 Referer，否则会空响应"""
+        from report_generator import get_hot_sectors
+        resp = MagicMock()
+        resp.json.return_value = {"data": {"diff": [{"f14": "半导体", "f3": 3.5}]}}
+        with patch("report_generator.requests.get", return_value=resp) as mock_get:
+            sectors = get_hot_sectors()
+        assert sectors == [{"name": "半导体", "change_pct": 3.5}]
+        assert mock_get.call_args.kwargs["headers"]["Referer"] == "https://quote.eastmoney.com/"
+        assert mock_get.call_args.kwargs["params"]["ut"]
+
+    def test_get_holdings_returns_counts(self):
+        """持仓取数返回 (文本, 成功数, 总数)，并标注无实时估值"""
+        from report_generator import get_holdings_for_user
+        user = {"watchlist": {
+            "stocks": [{"code": "600519", "name": "贵州茅台"}],
+            "funds": [{"code": "000218", "name": "国泰黄金"}],
+        }}
+        quote = {
+            "name": "贵州茅台", "price": 1500.0, "high": 1510.0, "low": 1490.0,
+            "change_pct": 0.5,
+        }
+        val = {
+            "name": "国泰黄金ETF联接A", "nav": 3.1049,
+            "estimated_nav": 3.1049, "estimated_change_pct": -0.32,
+            "is_estimate": False,
+        }
+        with patch("report_generator.api_stock_quote", return_value=quote), \
+             patch("report_generator.api_fund_valuation", return_value=val):
+            text, ok, total = get_holdings_for_user(user)
+        assert (ok, total) == (2, 2)
+        assert "600519" in text and "000218" in text
+        assert "无实时估值" in text
+
+
+# ═══════════════════════════════════════════════
+# 报告熔断 & thinking 重试
+# ═══════════════════════════════════════════════
+
+class TestReportGuard:
+    def test_all_holdings_failed_raises(self):
+        """全部持仓取数失败时终止，不调用模型"""
+        from report_generator import generate_report
+        indices = {"上证指数": {"price": 3000, "change_pct": 0.1,
+                                "high": 3010, "low": 2990}}
+        with patch("report_generator.get_market_indices", return_value=indices), \
+             patch("report_generator.get_hot_sectors", return_value=[]), \
+             patch("report_generator.get_holdings_for_user",
+                   return_value=("某基金(000001): 获取失败", 0, 1)), \
+             patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=False):
+            with pytest.raises(RuntimeError, match="全部获取失败"):
+                generate_report("morning", {"name": "测试用户"})
+
+
+class TestModelRetry:
+    def _block(self, block_type, text=""):
+        return type("Block", (), {"type": block_type, "text": text})()
+
+    def test_retry_after_thinking_only(self):
+        """第一次只有 thinking，第二次有 text → 自动重试成功"""
+        from report_generator import _create_with_retry
+        client = MagicMock()
+        client.messages.create.side_effect = [
+            MagicMock(content=[self._block("thinking")]),
+            MagicMock(content=[self._block("text", "最终报告")]),
+        ]
+        result = _create_with_retry(
+            client, model="m", max_tokens=10, system="s", messages=[],
+        )
+        assert result == "最终报告"
+        assert client.messages.create.call_count == 2
+
+    def test_agent_thinking_only_returns_hint(self):
+        """Web 端遇到 thinking-only 时返回可读提示而不是 AttributeError"""
+        from agent import run_agent
+        client = MagicMock()
+        client.messages.create.return_value = MagicMock(
+            content=[self._block("thinking")]
+        )
+        with patch("agent.get_api_key", return_value="sk-test"), \
+             patch("agent.anthropic.Anthropic", return_value=client):
+            result = run_agent("分析贵州茅台", MagicMock())
+        assert "未返回文本内容" in result
+
+
+# ═══════════════════════════════════════════════
+# 推送路由：多用户不再广播到同一个微信会话
+# ═══════════════════════════════════════════════
+
+class TestPushRouting:
+    def test_cc_connect_uses_given_target(self):
+        import report_generator as rg
+        with patch.object(rg, "_find_cc_connect", return_value="/usr/bin/cc-connect"), \
+             patch.object(rg.subprocess, "run") as mock_run:
+            mock_run.return_value.returncode = 0
+            ok = rg._push_via_cc_connect("hello", "alice")
+        assert ok is True
+        assert mock_run.call_args.args[0] == [
+            "/usr/bin/cc-connect", "send", "--stdin", "-p", "alice",
+        ]
+
+    def test_multi_user_without_target_skips_cc(self):
+        """多用户且未配置 cc_target 时只走 Server酱，避免发错人"""
+        import report_generator as rg
+        with patch.object(rg, "_push_via_cc_connect") as mock_cc, \
+             patch.object(rg, "_push_via_serverchan", return_value=True) as mock_sc:
+            ok = rg.push_to_user({"name": "张三"}, "t", "c", default_cc_target="")
+        assert ok is True
+        mock_cc.assert_not_called()
+        mock_sc.assert_called_once()
+
+    def test_user_target_overrides_default(self):
+        import report_generator as rg
+        with patch.object(rg, "_push_via_cc_connect", return_value=True) as mock_cc:
+            rg.push_to_user(
+                {"name": "张三", "cc_target": "alice"}, "t", "c",
+                default_cc_target="main",
+            )
+        mock_cc.assert_called_once_with("c", "alice")
+
+
+    def test_main_multi_user_does_not_default_to_main(self):
+        """多用户主流程：default_cc_target 必须为空"""
+        import report_generator as rg
+        users = [{"name": "A"}, {"name": "B"}]
+        with patch.object(rg, "is_trading_day", return_value=(True, "")), \
+             patch.object(rg, "load_all_users", return_value=users), \
+             patch.object(rg, "generate_report", return_value="r"), \
+             patch.object(rg, "push_to_user", return_value=True) as mock_push, \
+             patch.object(rg.sys, "argv", ["report_generator.py", "morning"]):
+            rg.main()
+        assert mock_push.call_count == 2
+        for call in mock_push.call_args_list:
+            assert call.kwargs["default_cc_target"] == ""
+
+    def test_main_single_user_defaults_to_main(self):
+        """单用户主流程：允许默认发到 main"""
+        import report_generator as rg
+        with patch.object(rg, "is_trading_day", return_value=(True, "")), \
+             patch.object(rg, "load_all_users", return_value=[{"name": "A"}]), \
+             patch.object(rg, "generate_report", return_value="r"), \
+             patch.object(rg, "push_to_user", return_value=True) as mock_push, \
+             patch.dict(os.environ, {"CC_CONNECT_TARGET": "main"}), \
+             patch.object(rg.sys, "argv", ["report_generator.py", "morning"]):
+            rg.main()
+        assert mock_push.call_args.kwargs["default_cc_target"] == "main"
 
 
 if __name__ == "__main__":

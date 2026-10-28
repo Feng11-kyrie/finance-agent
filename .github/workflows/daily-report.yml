@@ -1,11 +1,8 @@
 name: 每日智能分析报告
 
 on:
-  schedule:
-    # 北京时间 10:00 = UTC 02:00（周一至周五）
-    - cron: '0 2 * * 1-5'
-    # 北京时间 14:30 = UTC 06:30（周一至周五，收盘前30分钟）
-    - cron: '30 6 * * 1-5'
+  # 定时任务已迁到本机 crontab（交易日 10:00 / 14:30 北京时间）。
+  # 这里只保留手动触发，避免 GitHub Actions 与本地 cron 重复推送。
   workflow_dispatch:
     inputs:
       report_type:
@@ -36,16 +33,11 @@ jobs:
       - name: 确定报告类型
         id: report_type
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ "${{ github.event.inputs.report_type }}" = "auto" ]; then
-              HOUR=$(date -u +%H)
-              if [ $HOUR -lt 4 ]; then TYPE="morning"; else TYPE="afternoon"; fi
-            else
-              TYPE="${{ github.event.inputs.report_type }}"
-            fi
+          if [ "${{ github.event.inputs.report_type }}" = "auto" ]; then
+            HOUR=$(TZ='Asia/Shanghai' date +%H)
+            if [ $HOUR -lt 12 ]; then TYPE="morning"; else TYPE="afternoon"; fi
           else
-            HOUR=$(date -u +%H)
-            if [ $HOUR -lt 4 ]; then TYPE="morning"; else TYPE="afternoon"; fi
+            TYPE="${{ github.event.inputs.report_type }}"
           fi
           echo "type=$TYPE" >> $GITHUB_OUTPUT
           echo "📋 报告类型: $TYPE"

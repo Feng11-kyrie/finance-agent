@@ -17,6 +17,31 @@ HEADERS = {
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
+# 基金接口需要基金站 Referer，否则部分接口会返回空响应
+FUND_HEADERS = {
+    **HEADERS,
+    "Referer": "https://fund.eastmoney.com/",
+}
+
+# 基金移动接口对桌面 Chrome UA 会返回“网络繁忙”，需用移动端 UA
+FUND_MOBILE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+    "Referer": "https://fund.eastmoney.com/",
+}
+
+
+def _parse_json_or_jsonp(text: str):
+    """兼容纯 JSON 与 JSONP（jsonpgz(...) / callback(...)）两种返回格式。"""
+    text = text.strip()
+    if not text:
+        return None
+    if text.startswith("{"):
+        return json.loads(text)
+    match = re.search(r"\((.+)\)", text, re.S)
+    if match:
+        return json.loads(match.group(1))
+    return None
+
 
 def api_search_stock(keyword: str) -> list[dict]:
     """搜索 A 股股票"""
@@ -152,14 +177,7 @@ def api_search_fund(keyword: str) -> list[dict]:
     params = {"m": "1", "key": keyword}
     try:
         r = SESSION.get(url, params=params, timeout=8)
-        text = r.text
-        # 兼容 JSONP 和纯 JSON 两种返回
-        data = None
-        match = re.search(r"\((.+)\)", text)
-        if match:
-            data = json.loads(match.group(1))
-        elif text.startswith("{"):
-            data = json.loads(text)
+        data = _parse_json_or_jsonp(r.text)
         if not data:
             return []
         results = []
@@ -180,26 +198,72 @@ def api_search_fund(keyword: str) -> list[dict]:
 
 
 def api_fund_valuation(code: str) -> dict | None:
-    """获取基金实时估值"""
-    url = f"https://fundgz.1234567.com.cn/js/{code}.js"
+    """获取基金净值与实时估值。
+
+    主源：东财基金移动接口（仍可用，返回最新净值 NAV/日涨跌 NAVCHGRT）。
+    原来使用的 fundgz.1234567.com.cn 已下线（返回 404 页面），因此这里改为
+    「有实时估值就用 GSZ/GSZZL，没有就退回最近净值」，并通过 is_estimate
+    告诉调用方当前数字是不是实时估算，避免把昨日涨跌当成今日估算。
+    兜底：净值历史接口（api_fund_nav_history）。
+    """
+    url = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo"
+    params = {
+        "pageIndex": 1, "pageSize": 1,
+        "plat": "Android", "appType": "ttjj",
+        "product": "EFund", "Version": "1",
+        "deviceid": "1", "Fcodes": code,
+    }
     try:
-        r = SESSION.get(url, timeout=8)
-        text = r.text
-        match = re.search(r"jsonpgz\((.+)\)", text)
-        if not match:
-            return None
-        data = json.loads(match.group(1))
-        return {
-            "code": data.get("fundcode", code),
-            "name": data.get("name", ""),
-            "nav_date": data.get("jzrq", ""),
-            "nav": float(data.get("dwjz", 0)),
-            "estimated_nav": float(data.get("gsz", 0)),
-            "estimated_change_pct": float(data.get("gszzl", 0)),
-            "estimate_time": data.get("gztime", ""),
-        }
+        r = SESSION.get(url, params=params, headers=FUND_MOBILE_HEADERS, timeout=8)
+        items = (r.json() or {}).get("Datas") or []
+        if items:
+            d = items[0]
+            nav = float(d.get("NAV") or 0)
+            if nav > 0:
+                gsz = d.get("GSZ")
+                gszzl = d.get("GSZZL")
+                is_estimate = gsz not in (None, "", 0) and gszzl not in (None, "")
+                return {
+                    "code": d.get("FCODE", code),
+                    "name": d.get("SHORTNAME", ""),
+                    "nav_date": d.get("PDATE", ""),
+                    "nav": nav,
+                    "estimated_nav": float(gsz) if is_estimate else nav,
+                    "estimated_change_pct": (
+                        float(gszzl) if is_estimate else float(d.get("NAVCHGRT") or 0)
+                    ),
+                    "estimate_time": d.get("GZTIME") or d.get("PDATE", ""),
+                    "is_estimate": is_estimate,
+                }
     except Exception:
-        return None
+        pass
+
+    # 兜底：最近一条净值（无实时估值）
+    try:
+        history = api_fund_nav_history(code, 1)
+        if history:
+            h = history[0]
+            name = ""
+            try:
+                info = api_fund_info(code)
+                if info:
+                    name = info.get("name", "")
+            except Exception:
+                pass
+            return {
+                "code": code,
+                "name": name,
+                "nav_date": h["date"],
+                "nav": h["nav"],
+                "estimated_nav": h["nav"],
+                "estimated_change_pct": h["daily_change_pct"],
+                "estimate_time": h["date"],
+                "is_estimate": False,
+            }
+    except Exception:
+        pass
+
+    return None
 
 
 def api_fund_nav_history(code: str, count: int = 10) -> list[dict]:
@@ -224,17 +288,17 @@ def api_fund_nav_history(code: str, count: int = 10) -> list[dict]:
 
 
 def api_fund_info(code: str) -> dict | None:
-    """获取基金基本信息（规模、经理、成立时间等）"""
+    """获取基金基本信息（基金公司、经理、起购金额等）"""
     url = "https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx"
     params = {"m": "1", "key": code}
     try:
         r = SESSION.get(url, params=params, timeout=8)
-        match = re.search(r"\((.+)\)", r.text)
-        if not match:
+        # 该接口返回纯 JSON；旧代码只按 JSONP 解析，导致永远返回 None
+        data = _parse_json_or_jsonp(r.text)
+        if not data:
             return None
-        data = json.loads(match.group(1))
         for item in data.get("Datas", []):
-            info = item.get("FundBaseInfo", {})
+            info = item.get("FundBaseInfo") or {}
             if info.get("FCODE") == code:
                 return {
                     "code": info.get("FCODE", code),
@@ -244,6 +308,18 @@ def api_fund_info(code: str) -> dict | None:
                     "manager": info.get("JJJL", ""),
                     "min_subscribe": info.get("MINSG", 0),
                     "is_buyable": info.get("ISBUY", "") == "1",
+                }
+        # 兼容扁平结构（部分返回不再包 FundBaseInfo）
+        for item in data.get("Datas", []):
+            if item.get("CODE") == code:
+                return {
+                    "code": item.get("CODE", code),
+                    "name": item.get("NAME", ""),
+                    "type": item.get("CATEGORYDESC", ""),
+                    "company": item.get("JJGS", ""),
+                    "manager": item.get("JJJL", ""),
+                    "min_subscribe": item.get("MINSG", 0),
+                    "is_buyable": item.get("ISBUY", "") == "1",
                 }
         return None
     except Exception:

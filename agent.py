@@ -147,8 +147,11 @@ def execute_tool(name: str, params: dict) -> str:
             "最低": f"{data['low']:.2f}",
             "昨收": f"{data['prev_close']:.2f}",
             "成交量": f"{data['volume_hands']}手",
-            "换手率": f"{data['turnover_rate']:.2f}%",
-            "总市值": f"{data['market_cap']/1e8:.2f}亿" if data["market_cap"] else "N/A",
+            "换手率": (
+                f"{data['turnover_rate']:.2f}%"
+                if data.get("turnover_rate") else "N/A（数据源未提供）"
+            ),
+            "总市值": f"{data['market_cap']/1e8:.2f}亿" if data.get("market_cap") else "N/A",
         }, ensure_ascii=False, indent=2)
 
     elif name == "get_stock_kline":
@@ -180,15 +183,21 @@ def execute_tool(name: str, params: dict) -> str:
         if not data:
             return f"未获取到基金 {params['fund_code']} 的估值数据"
         sign = "+" if data["estimated_change_pct"] >= 0 else ""
-        return json.dumps({
-            "基金名称": data["name"],
+        payload = {
+            "基金名称": data.get("name") or data.get("code", ""),
             "基金代码": data["code"],
             "净值日期": data["nav_date"],
             "单位净值": f"{data['nav']:.4f}元",
-            "估算净值": f"{data['estimated_nav']:.4f}元",
-            "估算涨跌幅": f"{sign}{data['estimated_change_pct']:.2f}%",
-            "估值时间": data["estimate_time"],
-        }, ensure_ascii=False, indent=2)
+        }
+        if data.get("is_estimate", True):
+            payload["估算净值"] = f"{data['estimated_nav']:.4f}元"
+            payload["估算涨跌幅"] = f"{sign}{data['estimated_change_pct']:.2f}%"
+            payload["估值时间"] = data["estimate_time"]
+        else:
+            payload["最新净值"] = f"{data['estimated_nav']:.4f}元"
+            payload["最新日涨跌幅"] = f"{sign}{data['estimated_change_pct']:.2f}%"
+            payload["说明"] = "实时估值接口不可用，以上为最近净值日数据"
+        return json.dumps(payload, ensure_ascii=False, indent=2)
 
     elif name == "get_fund_nav_history":
         history = api_fund_nav_history(params["fund_code"], 10)
@@ -277,7 +286,10 @@ def run_agent(user_question: str, status_container, fast_mode: bool = True) -> s
                 text_parts.append(block.text)
 
         if not tool_uses:
-            return "".join(text_parts) or response.content[0].text
+            if text_parts:
+                return "".join(text_parts)
+            block_types = [getattr(b, "type", "?") for b in response.content]
+            return f"模型未返回文本内容（blocks: {block_types}），请重试或切换到 Pro 模式。"
 
         tool_results = []
         for tu in tool_uses:
