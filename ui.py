@@ -180,7 +180,7 @@ button[data-baseweb="tab"][aria-selected="true"] { color: #0B1220; font-weight: 
   font-size: 0;
 }
 [data-testid="stFileUploaderDropzoneInstructions"] div > span:first-child::after {
-  content: "拖拽 CSV / XLSX 文件到此处";
+  content: "拖拽文件到此处";
   font-size: 14px;
   color: #334155;
 }

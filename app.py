@@ -13,7 +13,8 @@ import streamlit as st
 import holdings_import
 import sheets_db
 import ui
-from agent import run_agent
+import vision_import
+from agent import get_api_key, run_agent
 from data_api import api_stock_quote, api_fund_valuation
 
 # ═══════════════════════════════════════════════
@@ -346,70 +347,195 @@ with tab_analyze:
 # ── Tab 2: 导入持仓 ───────────────────────────
 
 with tab_import:
-    st.caption("自动识别『代码 / 名称 / 类型 / 买入价 / 数量 / 金额』列；导入后可直接在「持仓监控」算盈亏。")
+    st.caption("上传持仓截图由 AI 识别，或导入 CSV / Excel；核对后可直接保存为每日推送。")
 
     flash = st.session_state.get("import_flash", "")
     if flash:
         del st.session_state["import_flash"]
         st.success(flash)
 
-    with st.container(border=True):
-        col_up, col_side = st.columns([3, 2])
-        with col_up:
-            uploaded = st.file_uploader(
-                "上传持仓文件",
-                type=["csv", "xlsx"],
-                key="import_file",
-                help="支持券商、天天基金导出的 CSV/Excel，或下载右侧模板填写",
-            )
-        with col_side:
-            st.download_button(
-                "下载 CSV 模板",
-                holdings_import.CSV_TEMPLATE.encode("utf-8-sig"),
-                "holdings_template.csv",
-                "text/csv",
-                use_container_width=True,
-            )
-            type_mode = st.selectbox(
-                "类型识别", ["自动识别", "全部基金", "全部股票"],
-                key="import_type_mode",
-            )
+    mode = st.radio(
+        "导入方式", ["截图识别", "CSV / Excel"],
+        horizontal=True, key="import_mode",
+    )
 
-    rows = []
-    errors = []
-    mapping = {}
-    if uploaded is not None:
-        try:
-            df = holdings_import.read_table(uploaded.getvalue(), uploaded.name)
-            rows, errors, mapping = holdings_import.parse_holdings(
-                df, {"自动识别": "auto", "全部基金": "fund", "全部股票": "stock"}[type_mode]
-            )
-        except Exception as e:
-            st.error(f"读取失败：{e}")
+    if mode == "截图识别":
+        with st.container(border=True):
+            col_shot, col_opt = st.columns([2, 1])
+            with col_shot:
+                shot = st.file_uploader(
+                    "上传持仓截图",
+                    type=["png", "jpg", "jpeg", "webp"],
+                    key="vision_file",
+                    help="支持支付宝、天天基金、腾讯理财通、雪球的持有/持仓页面截图",
+                )
+            with col_opt:
+                platform = st.selectbox(
+                    "截图来源",
+                    ["支付宝", "天天基金", "腾讯理财通", "雪球", "其他"],
+                    key="vision_platform",
+                )
+                st.caption("截图会发送给 DeepSeek 视觉模型识别。")
 
-        if mapping:
-            with st.expander("识别到的列", expanded=False):
-                st.json(mapping)
+            if shot is not None:
+                st.image(shot, width=360)
+                if st.button("识别持仓", type="primary", key="vision_run"):
+                    with st.spinner("正在识别截图..."):
+                        try:
+                            rows, warnings, _ = vision_import.recognize(
+                                shot.getvalue(), shot.name, platform,
+                                get_api_key(),
+                            )
+                        except Exception as e:
+                            st.error(f"识别失败：{e}")
+                        else:
+                            rows, enrich_warnings = vision_import.enrich_rows(rows)
+                            warnings = warnings + enrich_warnings
+                            if rows and all(r.get("code") for r in rows):
+                                # 代码已按名称补全，去掉模型“未显示代码”的提示
+                                warnings = [w for w in warnings if "代码" not in str(w)]
+                            st.session_state["vision_rows"] = rows
+                            st.session_state["vision_warnings"] = warnings
+                            st.session_state["vision_nonce"] = (
+                                st.session_state.get("vision_nonce", 0) + 1
+                            )
 
+        rows = st.session_state.get("vision_rows", [])
+        warnings = st.session_state.get("vision_warnings", [])
         if rows:
-            st.success(f"识别到 {len(rows)} 条有效持仓")
-            st.dataframe(
-                pd.DataFrame(holdings_import.display_rows(rows)),
+            st.success(f"识别到 {len(rows)} 条持仓，请核对后导入")
+            nonce = st.session_state.get("vision_nonce", 0)
+            edited = st.data_editor(
+                pd.DataFrame(vision_import.rows_for_editor(rows)),
                 use_container_width=True,
                 hide_index=True,
+                num_rows="fixed",
+                key=f"vision_editor_{nonce}",
+                column_config={
+                    "类型": st.column_config.SelectboxColumn(
+                        "类型", options=["基金", "股票"], required=True,
+                    ),
+                    "代码": st.column_config.TextColumn("代码", max_chars=6),
+                    "名称": st.column_config.TextColumn("名称"),
+                    "买入价/净值": st.column_config.TextColumn("买入价/净值"),
+                    "份额": st.column_config.TextColumn("份额"),
+                    "金额": st.column_config.TextColumn("金额"),
+                    "当前市值": st.column_config.TextColumn("当前市值"),
+                    "收益": st.column_config.TextColumn("收益"),
+                },
             )
-        for err in errors[:8]:
-            st.warning(err)
-        if len(errors) > 8:
-            st.caption(f"另有 {len(errors) - 8} 条未通过校验，导入时会跳过。")
+            notes = sorted({
+                str(row.get("note", "")).strip()
+                for row in rows if str(row.get("note", "")).strip()
+            })
+            if notes:
+                st.caption("识别说明：" + "；".join(notes))
 
-        if rows and st.button("导入到当前持仓", type="primary", key="import_apply"):
-            new_holdings, added, updated = holdings_import.merge_holdings(
-                st.session_state.holdings, rows
-            )
-            st.session_state.holdings = new_holdings
-            st.session_state["import_flash"] = f"已导入：新增 {added} 条，更新 {updated} 条"
-            st.rerun()
+            if st.button("导入识别结果", type="primary", key="vision_apply"):
+                new_rows, row_errors = vision_import.editor_to_rows(edited)
+                if new_rows:
+                    with st.spinner("正在补全成本..."):
+                        new_rows, enrich_errors = vision_import.enrich_rows(new_rows)
+                    clean_rows = []
+                    for row in new_rows:
+                        if (
+                            row.get("type") == "stock"
+                            and row.get("buy_price") and row.get("shares")
+                        ):
+                            clean_rows.append({
+                                "type": "stock", "code": row["code"],
+                                "name": row["name"], "buy_price": row["buy_price"],
+                                "shares": row["shares"],
+                            })
+                        elif (
+                            row.get("type") == "fund"
+                            and row.get("buy_nav") and row.get("amount")
+                        ):
+                            clean_rows.append({
+                                "type": "fund", "code": row["code"],
+                                "name": row["name"], "buy_nav": row["buy_nav"],
+                                "amount": row["amount"],
+                            })
+                    if clean_rows:
+                        merged, added, updated = holdings_import.merge_holdings(
+                            st.session_state.holdings, clean_rows
+                        )
+                        st.session_state.holdings = merged
+                        st.session_state["import_flash"] = (
+                            f"已导入：新增 {added} 条，更新 {updated} 条"
+                        )
+                        st.session_state["vision_rows"] = []
+                        st.session_state["vision_warnings"] = []
+                        st.rerun()
+                    else:
+                        st.error("没有可导入的有效行，请检查代码、价格和金额")
+                    for err in enrich_errors[:5]:
+                        st.warning(err)
+                else:
+                    st.error("没有可导入的有效行，请检查代码、价格和金额")
+                for err in row_errors[:5]:
+                    st.warning(err)
+
+        for warning in warnings[:8]:
+            st.warning(warning)
+    else:
+        with st.container(border=True):
+            col_up, col_side = st.columns([3, 2])
+            with col_up:
+                uploaded = st.file_uploader(
+                    "上传持仓文件",
+                    type=["csv", "xlsx"],
+                    key="import_file",
+                    help="支持券商、天天基金导出的 CSV/Excel，或下载右侧模板填写",
+                )
+            with col_side:
+                st.download_button(
+                    "下载 CSV 模板",
+                    holdings_import.CSV_TEMPLATE.encode("utf-8-sig"),
+                    "holdings_template.csv",
+                    "text/csv",
+                    use_container_width=True,
+                )
+                type_mode = st.selectbox(
+                    "类型识别", ["自动识别", "全部基金", "全部股票"],
+                    key="import_type_mode",
+                )
+
+        rows = []
+        errors = []
+        mapping = {}
+        if uploaded is not None:
+            try:
+                df = holdings_import.read_table(uploaded.getvalue(), uploaded.name)
+                rows, errors, mapping = holdings_import.parse_holdings(
+                    df, {"自动识别": "auto", "全部基金": "fund", "全部股票": "stock"}[type_mode]
+                )
+            except Exception as e:
+                st.error(f"读取失败：{e}")
+
+            if mapping:
+                with st.expander("识别到的列", expanded=False):
+                    st.json(mapping)
+
+            if rows:
+                st.success(f"识别到 {len(rows)} 条有效持仓")
+                st.dataframe(
+                    pd.DataFrame(holdings_import.display_rows(rows)),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            for err in errors[:8]:
+                st.warning(err)
+            if len(errors) > 8:
+                st.caption(f"另有 {len(errors) - 8} 条未通过校验，导入时会跳过。")
+
+            if rows and st.button("导入到当前持仓", type="primary", key="import_apply"):
+                new_holdings, added, updated = holdings_import.merge_holdings(
+                    st.session_state.holdings, rows
+                )
+                st.session_state.holdings = new_holdings
+                st.session_state["import_flash"] = f"已导入：新增 {added} 条，更新 {updated} 条"
+                st.rerun()
 
     st.divider()
     st.subheader("保存为每日推送")

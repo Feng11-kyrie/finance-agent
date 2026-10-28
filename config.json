@@ -2,6 +2,7 @@
   "models": {
     "fast": "deepseek-v4-flash",
     "pro": "deepseek-v4-pro",
-    "report": "deepseek-v4-flash"
+    "report": "deepseek-v4-flash",
+    "vision": "deepseek-flash"
   }
 }

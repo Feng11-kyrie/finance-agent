@@ -46,7 +46,7 @@ User: "分析宁德时代"
 
 **7 Built-in Tools**: search_stock · get_stock_quote · get_stock_kline · search_fund · get_fund_valuation · get_fund_nav_history · get_fund_info
 
-**Holdings import**: upload a CSV/XLSX exported from your broker, preview parsed rows, import them into the session, and save the list for the daily push.
+**Holdings import**: upload a holdings screenshot (Alipay / EastMoney / Licaitong / Xueqiu) and let DeepSeek Vision extract fund code, shares, cost and market value; or import CSV/XLSX. Review and edit before saving.
 
 ---
 
@@ -76,7 +76,7 @@ Python Report Generator ─→ DeepSeek V4 AI
 
 | Layer | Tech | Why |
 |------|------|-----|
-| AI | DeepSeek V4 via Anthropic SDK | Hand-written Agent Loop, 7 tools |
+| AI | DeepSeek V4 via Anthropic SDK | Hand-written Agent Loop + vision screenshot import |
 | Data | Sina / EastMoney / TianTian Fund APIs | Free, covers all A-shares + funds |
 | Storage | Google Sheets + gspread | $0, built-in Web UI, fallback to local JSON |
 | Schedule | Local crontab (GitHub Actions as manual backup) | Runs on the machine that owns the WeChat bot |
@@ -93,6 +93,7 @@ finance-agent/
 ├── app.py                  # Streamlit web app (analysis + registration)
 ├── agent.py                # Agent loop + 7 tool definitions
 ├── holdings_import.py      # CSV/XLSX holdings parser + validation
+├── vision_import.py        # Screenshot recognition via DeepSeek Vision
 ├── data_api.py             # Sina / EastMoney / TianTian data layer
 ├── report_generator.py     # Report engine (local cron entry point)
 ├── sheets_db.py            # Google Sheets data layer (with local fallback)
@@ -171,7 +172,7 @@ streamlit run app.py
 
 手写 Agent Loop（约 50 行），实现 **7 个 Tool-use 工具**，Agent 自主决定调用哪些工具、调用顺序、何时输出最终结果——无需人工编写 if-else。
 
-**持仓导入**：Web 端上传券商/天天基金导出的 CSV/Excel，自动识别列名、预览确认后导入持仓，并可一键保存到每日推送名单。
+**持仓导入**：Web 端上传支付宝/天天基金/理财通/雪球的持仓截图，由 DeepSeek 视觉模型识别基金代码、份额、成本和市值，核对后可一键导入；也支持 CSV/Excel 批量导入。
 
 ## 🏗 系统架构
 

@@ -172,6 +172,7 @@ class TestConfig:
         assert get_model("fast") == "deepseek-v4-flash"
         assert get_model("pro") == "deepseek-v4-pro"
         assert get_model("report") == "deepseek-v4-flash"
+        assert get_model("vision") == "deepseek-flash"
 
     def test_get_model_unknown_fallback(self):
         from config_loader import get_model
